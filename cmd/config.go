@@ -28,16 +28,6 @@ func runConfigShow(_ *cobra.Command, _ *rootFlags, _ []string) error {
 	return nil
 }
 
-func newConfigInitCmd(_ *rootFlags) *cobra.Command {
-	return &cobra.Command{
-		Use:   "init",
-		Short: "Initialize ldctl configuration",
-		RunE: func(_ *cobra.Command, _ []string) error {
-			// stub
-			return nil
-		},
-	}
-}
 
 func newConfigShowCmd(flags *rootFlags) *cobra.Command {
 	return &cobra.Command{
