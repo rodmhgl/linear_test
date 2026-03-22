@@ -1,6 +1,7 @@
 package errors_test
 
 import (
+	"bytes"
 	"fmt"
 	"testing"
 
@@ -79,4 +80,20 @@ func TestNewNotFound(t *testing.T) {
 	assert.Equal(t, "bookmark", e.Details["resource"])
 	assert.Equal(t, 42, e.Details["id"])
 	assert.Equal(t, 1, e.ExitCode())
+}
+
+func TestPrintHuman_BasicFormat(t *testing.T) {
+	var buf bytes.Buffer
+	e := &ldcerr.Error{Type: ldcerr.APIError, Message: "bookmark not found"}
+	ldcerr.PrintHuman(&buf, e)
+	assert.Equal(t, "Error: bookmark not found\n", buf.String())
+}
+
+func TestPrintHuman_WithHint(t *testing.T) {
+	var buf bytes.Buffer
+	e := ldcerr.NewConfigNotFound("/cfg/config.toml")
+	ldcerr.PrintHuman(&buf, e)
+	out := buf.String()
+	assert.Contains(t, out, "Error: no configuration found")
+	assert.Contains(t, out, "ldctl config init")
 }
