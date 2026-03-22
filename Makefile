@@ -9,7 +9,7 @@ LDFLAGS := -ldflags "\
   -X $(MODULE)/internal/version.Commit=$(COMMIT) \
   -X $(MODULE)/internal/version.BuildDate=$(BUILD_DATE)"
 
-.PHONY: build test lint tidy clean help
+.PHONY: build test test-integration vet lint tidy clean help
 
 ## build: Compile the binary with version info injected via ldflags.
 build:
@@ -18,6 +18,14 @@ build:
 ## test: Run tests with race detector enabled.
 test:
 	go test -race ./...
+
+## test-integration: Build binary then run integration tests (uses build tag).
+test-integration: build
+	go test -race -tags integration ./...
+
+## vet: Run go vet across all packages.
+vet:
+	go vet ./...
 
 ## lint: Run golangci-lint.
 lint:
