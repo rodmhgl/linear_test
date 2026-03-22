@@ -23,21 +23,7 @@ func newConfigCmd(flags *rootFlags) *cobra.Command {
 	return cmd
 }
 
-func runConfigShow(_ *cobra.Command, _ *rootFlags, _ []string) error {
-	// stub: full implementation in a future issue
-	return nil
-}
 
-
-func newConfigShowCmd(flags *rootFlags) *cobra.Command {
-	return &cobra.Command{
-		Use:   "show",
-		Short: "Show current configuration",
-		RunE: func(cmd *cobra.Command, args []string) error {
-			return runConfigShow(cmd, flags, args)
-		},
-	}
-}
 
 func newConfigTestCmd(_ *rootFlags) *cobra.Command {
 	return &cobra.Command{

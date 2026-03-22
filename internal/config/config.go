@@ -1,7 +1,11 @@
-// Package config handles loading and locating ldctl configuration.
+// Package config handles loading and validating ldctl configuration.
+// Configuration may come from a TOML file (~/.config/ldctl/config.toml)
+// or from environment variables (LINKDING_URL, LINKDING_TOKEN).
+// Environment variables take precedence over the config file.
 package config
 
 import (
+	"fmt"
 	"os"
 	"path/filepath"
 	"runtime"
@@ -11,66 +15,48 @@ import (
 	ldcerr "github.com/rodmhgl/ldctl/internal/errors"
 )
 
-// Config holds the loaded configuration.
+// Config holds the effective configuration values.
 type Config struct {
-	URL   string `toml:"url"`
-	Token string `toml:"token"`
+	URL   string
+	Token string
 }
 
-// Source records where each config value came from.
+// Source records where each configuration value came from.
+// Possible values: "config file", "env: LINKDING_URL", "env: LINKDING_TOKEN", or "not set".
 type Source struct {
-	URL   string // "config file", "env: LINKDING_URL", or "not set"
-	Token string // "config file", "env: LINKDING_TOKEN", or "not set"
+	URL   string
+	Token string
 }
 
-// LoadResult bundles Config and Source together.
+// LoadResult combines the effective Config and its Sources.
 type LoadResult struct {
 	Config Config
 	Source Source
 }
 
-// tomlConfig is the on-disk representation.
+// tomlConfig mirrors the TOML file layout for decoding.
 type tomlConfig struct {
 	URL   string `toml:"url"`
 	Token string `toml:"token"`
 }
 
-// ConfigPath returns the platform-appropriate config file path.
-//
-//   - Linux/macOS: $XDG_CONFIG_HOME/ldctl/config.toml or ~/.config/ldctl/config.toml
-//   - Windows:     %APPDATA%\ldctl\config.toml
+// ConfigPath returns the absolute path to the ldctl config file.
+// On all platforms it uses os.UserConfigDir() as the base.
 func ConfigPath() (string, error) {
-	var base string
-
-	if runtime.GOOS == "windows" {
-		appdata := os.Getenv("APPDATA")
-		if appdata == "" {
-			home, err := os.UserHomeDir()
-			if err != nil {
-				return "", ldcerr.Newf(ldcerr.ConfigError, "cannot determine config directory: %v", err)
-			}
-			appdata = home
-		}
-		base = appdata
-	} else {
-		xdg := os.Getenv("XDG_CONFIG_HOME")
-		if xdg != "" {
-			base = xdg
-		} else {
-			home, err := os.UserHomeDir()
-			if err != nil {
-				return "", ldcerr.Newf(ldcerr.ConfigError, "cannot determine home directory: %v", err)
-			}
-			base = filepath.Join(home, ".config")
-		}
+	base, err := os.UserConfigDir()
+	if err != nil {
+		return "", ldcerr.Newf(ldcerr.IOError, "cannot determine config directory: %v", err)
 	}
-
 	return filepath.Join(base, "ldctl", "config.toml"), nil
 }
 
-// Load reads config from env vars and/or config file.
-// Precedence: env var > config file field.
-// Returns error if no config found at all.
+// Load reads configuration from the TOML config file and/or environment
+// variables, with environment variables taking precedence.
+//
+// Error cases:
+//   - TOML parse error      → ConfigError "Config file is corrupt…"
+//   - Missing required field → ConfigError "Config missing required field: <field>"
+//   - No config anywhere    → ConfigError via NewConfigNotFound
 func Load() (*LoadResult, error) {
 	result := &LoadResult{
 		Source: Source{
@@ -79,46 +65,93 @@ func Load() (*LoadResult, error) {
 		},
 	}
 
-	// Try reading the config file first (lowest precedence, overridden by env).
-	path, err := ConfigPath()
+	// Attempt to load config file first.
+	cfgPath, err := ConfigPath()
 	if err != nil {
 		return nil, err
 	}
 
-	var fileCfg tomlConfig
 	fileExists := false
-	if _, statErr := os.Stat(path); statErr == nil {
+	if _, statErr := os.Stat(cfgPath); statErr == nil {
 		fileExists = true
-		if _, decodeErr := toml.DecodeFile(path, &fileCfg); decodeErr != nil {
-			return nil, ldcerr.Newf(ldcerr.ConfigError, "failed to parse config file %s: %v", path, decodeErr)
-		}
-		if fileCfg.URL != "" {
-			result.Config.URL = fileCfg.URL
-			result.Source.URL = "config file"
-		}
-		if fileCfg.Token != "" {
-			result.Config.Token = fileCfg.Token
-			result.Source.Token = "config file"
+	}
+
+	if fileExists {
+		if err := loadFromFile(cfgPath, result); err != nil {
+			return nil, err
 		}
 	}
 
-	// Env vars take precedence over config file.
-	if envURL := os.Getenv("LINKDING_URL"); envURL != "" {
-		result.Config.URL = envURL
-		result.Source.URL = "env: LINKDING_URL"
-	}
-	if envToken := os.Getenv("LINKDING_TOKEN"); envToken != "" {
-		result.Config.Token = envToken
-		result.Source.Token = "env: LINKDING_TOKEN"
-	}
+	// Environment variables override file values.
+	applyEnv(result)
 
-	// If nothing was loaded from any source, return an appropriate error.
+	// Validate that we have at least something usable.
 	if result.Config.URL == "" && result.Config.Token == "" {
-		if !fileExists {
-			return nil, ldcerr.NewConfigNotFound(path)
-		}
-		return nil, ldcerr.Newf(ldcerr.ConfigError, "config file %s exists but contains no url or token", path)
+		return nil, ldcerr.NewConfigNotFound(cfgPath)
+	}
+	if result.Config.URL == "" {
+		return nil, ldcerr.New(ldcerr.ConfigError, "Config missing required field: url")
+	}
+	if result.Config.Token == "" {
+		return nil, ldcerr.New(ldcerr.ConfigError, "Config missing required field: token")
 	}
 
 	return result, nil
+}
+
+// loadFromFile decodes the TOML config file and populates result.
+func loadFromFile(path string, result *LoadResult) error {
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return ldcerr.Newf(ldcerr.IOError, "cannot read config file: %v", err)
+	}
+
+	var tc tomlConfig
+	if _, err := toml.Decode(string(data), &tc); err != nil {
+		return ldcerr.New(
+			ldcerr.ConfigError,
+			"Config file is corrupt. Run 'ldctl config init --force' to recreate.",
+		)
+	}
+
+	if tc.URL != "" {
+		result.Config.URL = tc.URL
+		result.Source.URL = "config file"
+	}
+	if tc.Token != "" {
+		result.Config.Token = tc.Token
+		result.Source.Token = "config file"
+	}
+
+	return nil
+}
+
+// applyEnv checks LINKDING_URL and LINKDING_TOKEN environment variables
+// and applies them on top of whatever was loaded from the config file.
+func applyEnv(result *LoadResult) {
+	if v := os.Getenv("LINKDING_URL"); v != "" {
+		result.Config.URL = v
+		result.Source.URL = "env: LINKDING_URL"
+	}
+	if v := os.Getenv("LINKDING_TOKEN"); v != "" {
+		result.Config.Token = v
+		result.Source.Token = "env: LINKDING_TOKEN"
+	}
+}
+
+// FilePermissionsOK returns true when the config file either does not exist or
+// has permissions of exactly 0600. On Windows this always returns true because
+// POSIX-style file mode bits are not meaningful there.
+func FilePermissionsOK(path string) (bool, error) {
+	if runtime.GOOS == "windows" {
+		return true, nil
+	}
+	info, err := os.Stat(path)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return true, nil
+		}
+		return false, fmt.Errorf("cannot stat config file: %w", err)
+	}
+	return info.Mode().Perm() == 0o600, nil
 }
