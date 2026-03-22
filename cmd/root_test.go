@@ -2,6 +2,7 @@ package cmd_test
 
 import (
 	"bytes"
+	"fmt"
 	"strings"
 	"testing"
 
@@ -9,6 +10,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/rodmhgl/ldctl/cmd"
+	ldcerr "github.com/rodmhgl/ldctl/internal/errors"
 )
 
 func TestRoot_NoArgs_ShowsHelp(t *testing.T) {
@@ -144,4 +146,51 @@ func TestRoot_ConfigBare_OK(t *testing.T) {
 
 	err := root.Execute()
 	require.NoError(t, err)
+}
+
+func TestHandleError_LdctlConfigError_Returns2(t *testing.T) {
+	t.Parallel()
+
+	var errBuf bytes.Buffer
+	e := ldcerr.NewConfigNotFound("/cfg/config.toml")
+
+	code := cmd.HandleError(e, false, &errBuf)
+
+	assert.Equal(t, 2, code)
+	assert.Contains(t, errBuf.String(), "Error: no configuration found")
+}
+
+func TestHandleError_LdctlAPIError_Returns1(t *testing.T) {
+	t.Parallel()
+
+	var errBuf bytes.Buffer
+	e := ldcerr.NewNotFound("bookmark", 99)
+
+	code := cmd.HandleError(e, false, &errBuf)
+
+	assert.Equal(t, 1, code)
+	assert.Contains(t, errBuf.String(), "Error: bookmark not found")
+}
+
+func TestHandleError_LdctlError_JSONMode(t *testing.T) {
+	t.Parallel()
+
+	var errBuf bytes.Buffer
+	e := ldcerr.NewAuthFailed("https://ld.example.com", 401)
+
+	code := cmd.HandleError(e, true, &errBuf)
+
+	assert.Equal(t, 2, code)
+	assert.Contains(t, errBuf.String(), `"type"`)
+	assert.Contains(t, errBuf.String(), `"auth_error"`)
+}
+
+func TestHandleError_PlainError_Returns1(t *testing.T) {
+	t.Parallel()
+
+	var errBuf bytes.Buffer
+	code := cmd.HandleError(fmt.Errorf("unexpected"), false, &errBuf)
+
+	assert.Equal(t, 1, code)
+	assert.Contains(t, errBuf.String(), "Error: unexpected")
 }
