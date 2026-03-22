@@ -53,3 +53,30 @@ func TestError_Unwrap_ReturnsCause(t *testing.T) {
 	e := &ldcerr.Error{Type: ldcerr.IOError, Message: "wrapper", Cause: cause}
 	assert.Equal(t, cause, e.Unwrap())
 }
+
+func TestNewConfigNotFound(t *testing.T) {
+	e := ldcerr.NewConfigNotFound("/home/user/.config/ldctl/config.toml")
+	assert.Equal(t, ldcerr.ConfigError, e.Type)
+	assert.Equal(t, "no configuration found", e.Message)
+	assert.Equal(t, "/home/user/.config/ldctl/config.toml", e.Details["config_path"])
+	assert.NotEmpty(t, e.Details["suggestion"])
+	assert.Equal(t, 2, e.ExitCode())
+}
+
+func TestNewAuthFailed(t *testing.T) {
+	e := ldcerr.NewAuthFailed("https://links.example.com", 401)
+	assert.Equal(t, ldcerr.AuthError, e.Type)
+	assert.Equal(t, "authentication failed", e.Message)
+	assert.Equal(t, 401, e.Details["http_status"])
+	assert.Equal(t, "https://links.example.com", e.Details["instance_url"])
+	assert.Equal(t, 2, e.ExitCode())
+}
+
+func TestNewNotFound(t *testing.T) {
+	e := ldcerr.NewNotFound("bookmark", 42)
+	assert.Equal(t, ldcerr.NotFound, e.Type)
+	assert.Equal(t, "bookmark not found", e.Message)
+	assert.Equal(t, "bookmark", e.Details["resource"])
+	assert.Equal(t, 42, e.Details["id"])
+	assert.Equal(t, 1, e.ExitCode())
+}
