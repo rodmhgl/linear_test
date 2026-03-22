@@ -194,3 +194,114 @@ func TestHandleError_PlainError_Returns1(t *testing.T) {
 	assert.Equal(t, 1, code)
 	assert.Contains(t, errBuf.String(), "Error: unexpected")
 }
+
+// ---------------------------------------------------------------------------
+// RNC-28: --quiet / --verbose mutual exclusivity and short-flag tests
+// ---------------------------------------------------------------------------
+
+func TestRoot_ShortFlag_Q_Defined(t *testing.T) {
+	t.Parallel()
+
+	root := cmd.NewRootCmd("1.0.0")
+	pf := root.PersistentFlags()
+
+	flag := pf.ShorthandLookup("q")
+	assert.NotNil(t, flag, "expected short flag -q to be defined for --quiet")
+}
+
+func TestRoot_ShortFlag_V_Defined(t *testing.T) {
+	t.Parallel()
+
+	root := cmd.NewRootCmd("1.0.0")
+	pf := root.PersistentFlags()
+
+	flag := pf.ShorthandLookup("v")
+	assert.NotNil(t, flag, "expected short flag -v to be defined for --verbose")
+}
+
+func TestRoot_QuietFlag_AloneSucceeds(t *testing.T) {
+	t.Parallel()
+
+	root := cmd.NewRootCmd("1.0.0")
+	root.SetOut(&bytes.Buffer{})
+	root.SetErr(&bytes.Buffer{})
+	root.SetArgs([]string{"--quiet"})
+
+	err := root.Execute()
+	require.NoError(t, err)
+}
+
+func TestRoot_QuietShortFlag_AloneSucceeds(t *testing.T) {
+	t.Parallel()
+
+	root := cmd.NewRootCmd("1.0.0")
+	root.SetOut(&bytes.Buffer{})
+	root.SetErr(&bytes.Buffer{})
+	root.SetArgs([]string{"-q"})
+
+	err := root.Execute()
+	require.NoError(t, err)
+}
+
+func TestRoot_VerboseFlag_AloneSucceeds(t *testing.T) {
+	t.Parallel()
+
+	root := cmd.NewRootCmd("1.0.0")
+	root.SetOut(&bytes.Buffer{})
+	root.SetErr(&bytes.Buffer{})
+	root.SetArgs([]string{"--verbose"})
+
+	err := root.Execute()
+	require.NoError(t, err)
+}
+
+func TestRoot_VerboseShortFlag_AloneSucceeds(t *testing.T) {
+	t.Parallel()
+
+	root := cmd.NewRootCmd("1.0.0")
+	root.SetOut(&bytes.Buffer{})
+	root.SetErr(&bytes.Buffer{})
+	root.SetArgs([]string{"-v"})
+
+	err := root.Execute()
+	require.NoError(t, err)
+}
+
+func TestRoot_MutualExclusivity_LongFlags_ReturnsError(t *testing.T) {
+	t.Parallel()
+
+	root := cmd.NewRootCmd("1.0.0")
+	root.SetOut(&bytes.Buffer{})
+	root.SetErr(&bytes.Buffer{})
+	root.SetArgs([]string{"--quiet", "--verbose"})
+
+	err := root.Execute()
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "cannot use --quiet and --verbose together")
+}
+
+func TestRoot_MutualExclusivity_ShortFlags_ReturnsError(t *testing.T) {
+	t.Parallel()
+
+	root := cmd.NewRootCmd("1.0.0")
+	root.SetOut(&bytes.Buffer{})
+	root.SetErr(&bytes.Buffer{})
+	root.SetArgs([]string{"-q", "-v"})
+
+	err := root.Execute()
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "cannot use --quiet and --verbose together")
+}
+
+func TestRoot_MutualExclusivity_MixedFlags_ReturnsError(t *testing.T) {
+	t.Parallel()
+
+	root := cmd.NewRootCmd("1.0.0")
+	root.SetOut(&bytes.Buffer{})
+	root.SetErr(&bytes.Buffer{})
+	root.SetArgs([]string{"-q", "--verbose"})
+
+	err := root.Execute()
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "cannot use --quiet and --verbose together")
+}

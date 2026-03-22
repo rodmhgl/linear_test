@@ -63,8 +63,8 @@ token you configure once with 'ldctl config init'.`,
 	// Global persistent flags available to every subcommand.
 	pf := cmd.PersistentFlags()
 	pf.BoolVar(&flags.json, "json", false, "Output as JSON")
-	pf.BoolVar(&flags.quiet, "quiet", false, "Suppress non-essential output")
-	pf.BoolVar(&flags.verbose, "verbose", false, "Enable verbose output")
+	pf.BoolVarP(&flags.quiet, "quiet", "q", false, "Suppress non-essential output")
+	pf.BoolVarP(&flags.verbose, "verbose", "v", false, "Enable verbose output")
 	pf.BoolVar(&flags.version, "version", false, "Print version and exit")
 
 	// Override the help function only on the root command. Subcommands keep
@@ -146,11 +146,11 @@ Available Commands:
   version     Print version information
 
 Global Flags:
-  --json      Output as JSON
-  --quiet     Suppress non-essential output
-  --verbose   Enable verbose output
-  --version   Print version and exit
-  -h, --help  Show help
+  --json         Output as JSON
+  -q, --quiet    Suppress non-essential output
+  -v, --verbose  Enable verbose output
+  --version      Print version and exit
+  -h, --help     Show help
 
 Examples:
   ldctl config init             # Configure API token
