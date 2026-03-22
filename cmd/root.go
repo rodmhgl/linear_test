@@ -3,12 +3,14 @@ package cmd
 
 import (
 	"encoding/json"
-	"errors"
+	stderrors "errors"
 	"fmt"
+	"io"
 	"os"
 
 	"github.com/spf13/cobra"
 
+	ldcerr "github.com/rodmhgl/ldctl/internal/errors"
 	"github.com/rodmhgl/ldctl/internal/version"
 )
 
@@ -23,9 +25,9 @@ type rootFlags struct {
 // errVersionRequested is a sentinel error returned by PersistentPreRunE when
 // --version is passed. It lets [Execute] distinguish a "success" early exit
 // from a real error without calling [os.Exit] inside a command handler.
-var errVersionRequested = errors.New("version requested")
+var errVersionRequested = stderrors.New("version requested")
 
-func newRootCmd(v string) *cobra.Command {
+func newRootCmd(v string) (*cobra.Command, *rootFlags) {
 	flags := &rootFlags{}
 
 	cmd := &cobra.Command{
@@ -47,7 +49,7 @@ token you configure once with 'ldctl config init'.`,
 				return errVersionRequested
 			}
 			if flags.quiet && flags.verbose {
-				return errors.New("cannot use --quiet and --verbose together")
+				return stderrors.New("cannot use --quiet and --verbose together")
 			}
 			return nil
 		},
@@ -88,23 +90,40 @@ token you configure once with 'ldctl config init'.`,
 		newVersionCmd(flags),
 	)
 
-	return cmd
+	return cmd, flags
 }
 
 // NewRootCmd is the public constructor — used by tests to get a fresh tree.
 func NewRootCmd(v string) *cobra.Command {
-	return newRootCmd(v)
+	cmd, _ := newRootCmd(v)
+	return cmd
+}
+
+// HandleError writes the error to w in human or JSON format and returns the
+// appropriate exit code. It is exported for testing; production code calls it
+// via Execute().
+func HandleError(err error, jsonMode bool, w io.Writer) int {
+	var ldctlErr *ldcerr.Error
+	if stderrors.As(err, &ldctlErr) {
+		if jsonMode {
+			_ = ldcerr.PrintJSON(w, ldctlErr)
+		} else {
+			ldcerr.PrintHuman(w, ldctlErr)
+		}
+		return ldctlErr.ExitCode()
+	}
+	fmt.Fprintf(w, "Error: %v\n", err)
+	return 1
 }
 
 // Execute builds the command tree and runs it, returning an exit code.
 func Execute() int {
-	root := newRootCmd(version.Version)
+	root, flags := newRootCmd(version.Version)
 	if err := root.Execute(); err != nil {
-		if errors.Is(err, errVersionRequested) {
+		if stderrors.Is(err, errVersionRequested) {
 			return 0
 		}
-		fmt.Fprintln(os.Stderr, "Error:", err)
-		return 1
+		return HandleError(err, flags.json, os.Stderr)
 	}
 	return 0
 }
