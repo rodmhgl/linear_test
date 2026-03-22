@@ -2,10 +2,13 @@ package errors_test
 
 import (
 	"bytes"
+	"encoding/json"
 	"fmt"
+	"net/http"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 
 	ldcerr "github.com/rodmhgl/ldctl/internal/errors"
 )
@@ -96,4 +99,78 @@ func TestPrintHuman_WithHint(t *testing.T) {
 	out := buf.String()
 	assert.Contains(t, out, "Error: no configuration found")
 	assert.Contains(t, out, "ldctl config init")
+}
+
+func TestPrintJSON_ValidEnvelope(t *testing.T) {
+	var buf bytes.Buffer
+	e := &ldcerr.Error{
+		Type:    ldcerr.APIError,
+		Message: "bookmark not found",
+		Details: map[string]interface{}{"http_status": 404},
+	}
+	err := ldcerr.PrintJSON(&buf, e)
+	require.NoError(t, err)
+
+	var envelope struct {
+		Error struct {
+			Type    string                 `json:"type"`
+			Message string                 `json:"message"`
+			Details map[string]interface{} `json:"details"`
+		} `json:"error"`
+	}
+	require.NoError(t, json.Unmarshal(buf.Bytes(), &envelope))
+	assert.Equal(t, "api_error", envelope.Error.Type)
+	assert.Equal(t, "bookmark not found", envelope.Error.Message)
+	assert.InDelta(t, 404, envelope.Error.Details["http_status"], 0)
+}
+
+func TestPrintJSON_NilDetails_OmitsField(t *testing.T) {
+	var buf bytes.Buffer
+	e := &ldcerr.Error{Type: ldcerr.IOError, Message: "write failed"}
+	require.NoError(t, ldcerr.PrintJSON(&buf, e))
+
+	var raw map[string]interface{}
+	require.NoError(t, json.Unmarshal(buf.Bytes(), &raw))
+	errObj := raw["error"].(map[string]interface{})
+	_, hasDetails := errObj["details"]
+	assert.False(t, hasDetails, "details key should be absent when nil")
+}
+
+func TestMapHTTPError_401_IsAuthError(t *testing.T) {
+	resp := &http.Response{StatusCode: 401, Header: make(http.Header)}
+	e := ldcerr.MapHTTPError(resp)
+	assert.Equal(t, ldcerr.AuthError, e.Type)
+	assert.Equal(t, 2, e.ExitCode())
+}
+
+func TestMapHTTPError_403_IsAuthError(t *testing.T) {
+	resp := &http.Response{StatusCode: 403, Header: make(http.Header)}
+	e := ldcerr.MapHTTPError(resp)
+	assert.Equal(t, ldcerr.AuthError, e.Type)
+}
+
+func TestMapHTTPError_404_IsNotFound(t *testing.T) {
+	resp := &http.Response{StatusCode: 404, Header: make(http.Header)}
+	e := ldcerr.MapHTTPError(resp)
+	assert.Equal(t, ldcerr.NotFound, e.Type)
+	assert.Equal(t, 1, e.ExitCode())
+}
+
+func TestMapHTTPError_400_IsValidationError(t *testing.T) {
+	resp := &http.Response{StatusCode: 400, Header: make(http.Header)}
+	e := ldcerr.MapHTTPError(resp)
+	assert.Equal(t, ldcerr.ValidationError, e.Type)
+}
+
+func TestMapHTTPError_500_IsAPIError(t *testing.T) {
+	resp := &http.Response{StatusCode: 500, Header: make(http.Header)}
+	e := ldcerr.MapHTTPError(resp)
+	assert.Equal(t, ldcerr.APIError, e.Type)
+	assert.Equal(t, 1, e.ExitCode())
+}
+
+func TestMapHTTPError_UnknownCode_IsAPIError(t *testing.T) {
+	resp := &http.Response{StatusCode: 418, Header: make(http.Header)}
+	e := ldcerr.MapHTTPError(resp)
+	assert.Equal(t, ldcerr.APIError, e.Type)
 }
