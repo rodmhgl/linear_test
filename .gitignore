@@ -1,0 +1,6 @@
+# Worktrees
+.worktrees/
+
+# Build output
+ldctl
+cover.out

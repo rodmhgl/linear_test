@@ -1,0 +1,47 @@
+# Lefthook configuration for ldctl
+# See https://github.com/evilmartians/lefthook for documentation
+
+pre-commit:
+  parallel: true
+
+  commands:
+    gofmt:
+      glob: "*.go"
+      run: go fmt {staged_files}
+      stage_fixed: true
+
+    go-vet:
+      run: go vet ./...
+
+    golangci-lint:
+      run: |
+        if ! command -v golangci-lint > /dev/null; then
+          echo "⚠️  golangci-lint not installed. Install from https://golangci-lint.run/usage/install/"
+          exit 0
+        fi
+        golangci-lint run
+
+    go-mod-tidy:
+      glob: "go.mod"
+      run: go mod tidy && git add go.sum
+      stage_fixed: true
+      # Note: go mod tidy might modify go.sum as well, so both need staging
+
+    go-unit-tests:
+      glob: "*.go"
+      run: go test -short -v ./...
+      # Consider moving comprehensive tests to a pre-push hook or CI/CD pipeline if slow
+
+    gitleaks:
+      run: gitleaks protect --staged
+
+pre-push:
+  parallel: true
+  commands:
+
+    go-unit-tests:
+      glob: "*.go"
+      run: go test -short -v ./...
+
+    gitleaks:
+      run: gitleaks protect --redact
